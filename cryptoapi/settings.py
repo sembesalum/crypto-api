@@ -123,11 +123,13 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-# Zeno Pay Configuration
-ZENO_API_URL = os.getenv('ZENO_API_URL', 'https://api.zeno.africa')
-ZENO_ACCOUNT_ID = os.getenv('ZENO_ACCOUNT_ID', 'zp04692')
-ZENO_API_KEY = os.getenv('ZENO_API_KEY', '77fb7aca50600ecfaa254234f122191e')
-ZENO_SECRET_KEY = os.getenv('ZENO_SECRET_KEY', '347196786218b91d50f76b474598d19b74952e398f4dc209fb474598d19b74952e398')
+# Biashara Pay Configuration
+BIASHARA_API_URL = os.getenv('BIASHARA_API_URL', 'https://Biasharapay.com/api/v1')
+BIASHARA_ENVIRONMENT = os.getenv('BIASHARA_ENVIRONMENT', 'production')  # sandbox or production
+BIASHARA_MERCHANT_KEY = os.getenv('BIASHARA_MERCHANT_KEY', 'DApJb3Oo2uoE')
+BIASHARA_API_KEY = os.getenv('BIASHARA_API_KEY', 'rn3l7mSR11MxiPnsEtwrPHkLSW3U')
+BIASHARA_API_SECRET = os.getenv('BIASHARA_API_SECRET', 'dTvram2tcXOFJbHNCLkWHVFt7GmVHrkgWZ4k6X')
+BASE_URL = os.getenv('BASE_URL', 'http://localhost:8000')
 
 # Package Configuration
 PACKAGE_PRICES = {

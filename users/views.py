@@ -10,7 +10,7 @@ from .serializers import (
     PaymentResponseSerializer,
     WebhookSerializer
 )
-from .services import ZenoPayService
+from .services import BiasharaPayService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ def check_user_status(request, phone_number):
     """
     try:
         # Format phone number
-        formatted_phone = ZenoPayService.format_phone_number(phone_number)
+        formatted_phone = BiasharaPayService.format_phone_number(phone_number)
         
         # Get user
         try:
@@ -54,7 +54,7 @@ def check_user_status(request, phone_number):
 @api_view(['POST'])
 def initiate_payment(request):
     """
-    Initiate payment with Zeno Pay.
+    Initiate payment with Biashara Pay.
     Creates user automatically if they don't exist.
     
     POST /api/payment/initiate/
@@ -80,7 +80,7 @@ def initiate_payment(request):
         email = serializer.validated_data.get('email')
         
         # Validate amount matches a package price
-        package_type = ZenoPayService.get_package_type(amount)
+        package_type = BiasharaPayService.get_package_type(amount)
         if not package_type:
             valid_amounts = ', '.join([str(price) for price in settings.PACKAGE_PRICES.values()])
             return Response({
@@ -90,7 +90,7 @@ def initiate_payment(request):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Format phone number
-        formatted_phone = ZenoPayService.format_phone_number(phone_number)
+        formatted_phone = BiasharaPayService.format_phone_number(phone_number)
         
         # Get or create user
         user, created = User.objects.get_or_create(
@@ -108,46 +108,55 @@ def initiate_payment(request):
                 user.email = email
             user.save()
         
-        # Initiate payment with Zeno Pay
+        # Generate transaction reference
+        ref_trx = BiasharaPayService.generate_transaction_reference()
+        
+        # Initiate payment with Biashara Pay
         try:
-            zeno_response = ZenoPayService.initiate_payment(
+            biashara_response = BiasharaPayService.initiate_payment(
                 phone_number=formatted_phone,
                 name=name,
                 amount=amount,
-                email=email
+                email=email,
+                ref_trx=ref_trx
             )
             
             # Check if payment initiation was successful
-            if ZenoPayService.is_payment_successful(zeno_response):
-                order_id = zeno_response.get('order_id', '')
-                payment_url = zeno_response.get('payment_url', '')
+            if BiasharaPayService.is_payment_successful(biashara_response):
+                # Extract transaction ID and payment URL from response
+                transaction_id = biashara_response.get('data', {}).get('transaction_id') or biashara_response.get('transaction_id', '')
+                payment_url = biashara_response.get('data', {}).get('payment_url') or biashara_response.get('payment_url', '')
                 
-                # Save order_id to user (temporarily, will be confirmed via webhook)
-                user.order_id = order_id
+                # Save transaction reference and order_id to user
+                user.order_id = ref_trx  # Store our ref_trx as order_id
+                if transaction_id:
+                    user.transaction_id = transaction_id
                 user.save()
                 
                 return Response({
                     'status': 'success',
                     'message': 'Payment initiated successfully',
-                    'order_id': order_id,
+                    'order_id': ref_trx,
+                    'transaction_id': transaction_id,
                     'payment_url': payment_url,
                     'phone_number': formatted_phone,
                     'amount': amount,
-                    'package_type': package_type
+                    'package_type': package_type,
+                    'biashara_response': biashara_response
                 }, status=status.HTTP_200_OK)
             else:
-                error_message = zeno_response.get('message', 'Payment initiation failed')
+                error_message = biashara_response.get('message', 'Payment initiation failed')
                 return Response({
                     'status': 'error',
                     'message': error_message,
-                    'zeno_response': zeno_response
+                    'biashara_response': biashara_response
                 }, status=status.HTTP_400_BAD_REQUEST)
                 
         except Exception as e:
-            logger.error(f"Zeno Pay error: {str(e)}")
+            logger.error(f"Biashara Pay error: {str(e)}")
             return Response({
                 'status': 'error',
-                'message': 'Failed to initiate payment with Zeno Pay',
+                'message': 'Failed to initiate payment with Biashara Pay',
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
@@ -159,66 +168,163 @@ def initiate_payment(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@csrf_exempt
-@api_view(['POST'])
-def zeno_webhook(request):
+@api_view(['GET'])
+def verify_payment(request, transaction_id):
     """
-    Handle Zeno Pay webhook callbacks.
+    Verify a payment transaction with Biashara Pay.
     
-    POST /api/webhook/zeno/
+    GET /api/payment/verify/{transaction_id}/
     """
     try:
-        # Validate webhook data
-        serializer = WebhookSerializer(data=request.data)
-        if not serializer.is_valid():
-            logger.warning(f"Invalid webhook data: {serializer.errors}")
-            return Response('Invalid data', status=status.HTTP_400_BAD_REQUEST)
+        if not transaction_id:
+            return Response({
+                'error': 'Transaction ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        webhook_data = serializer.validated_data
-        status_value = webhook_data.get('status')
-        buyer_phone = webhook_data.get('buyer_phone')
-        amount_str = webhook_data.get('amount')
-        order_id = webhook_data.get('order_id', '')
-        transaction_id = webhook_data.get('transaction_id', '')
-        
-        # Format phone number
-        formatted_phone = ZenoPayService.format_phone_number(buyer_phone)
-        
-        # Convert amount to integer
+        # Verify payment with Biashara Pay
         try:
-            amount = int(amount_str)
-        except (ValueError, TypeError):
-            logger.error(f"Invalid amount in webhook: {amount_str}")
-            return Response('Invalid amount', status=status.HTTP_400_BAD_REQUEST)
+            verification_response = BiasharaPayService.verify_payment(transaction_id)
+            
+            # Check if payment was successful
+            is_successful = BiasharaPayService.is_payment_successful(verification_response)
+            
+            # Extract payment details
+            payment_data = verification_response.get('data', {})
+            ref_trx = payment_data.get('ref_trx') or verification_response.get('ref_trx', '')
+            amount = payment_data.get('payment_amount') or payment_data.get('amount')
+            status_value = payment_data.get('status') or verification_response.get('status', '')
+            
+            # If payment is successful, try to find and update user
+            if is_successful and ref_trx:
+                try:
+                    user = User.objects.get(order_id=ref_trx)
+                    
+                    # Get package type from amount
+                    if amount:
+                        package_type = BiasharaPayService.get_package_type(int(float(amount)))
+                        if package_type:
+                            # Activate or extend subscription
+                            user.activate_subscription(
+                                package_type=package_type,
+                                order_id=ref_trx,
+                                transaction_id=transaction_id
+                            )
+                            logger.info(f"Payment verified and subscription activated for {user.phone_number}")
+                except User.DoesNotExist:
+                    logger.warning(f"User with order_id {ref_trx} not found")
+            
+            return Response({
+                'status': 'success' if is_successful else 'failed',
+                'transaction_id': transaction_id,
+                'is_payment_successful': is_successful,
+                'verification_data': verification_response
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Biashara Pay verification error: {str(e)}")
+            return Response({
+                'status': 'error',
+                'message': 'Failed to verify payment with Biashara Pay',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    except Exception as e:
+        logger.error(f"Error verifying payment: {str(e)}")
+        return Response({
+            'error': 'An error occurred while verifying payment',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@csrf_exempt
+@api_view(['POST'])
+def biashara_webhook(request):
+    """
+    Handle Biashara Pay webhook callbacks (IPN).
+    
+    POST /api/webhook/biashara/
+    """
+    try:
+        # Log webhook data for debugging
+        logger.info(f"Biashara Pay webhook received: {request.data}")
         
-        # Process successful payment
-        if status_value == 'success':
-            # Get package type from amount
-            package_type = ZenoPayService.get_package_type(amount)
-            if not package_type:
-                logger.warning(f"Amount {amount} doesn't match any package price")
-                return Response('Invalid amount', status=status.HTTP_400_BAD_REQUEST)
-            
-            # Get or create user
+        # Get webhook data
+        webhook_data = request.data
+        
+        # Extract payment information
+        # Biashara Pay webhook format may vary, so we'll handle multiple possible formats
+        ref_trx = webhook_data.get('ref_trx') or webhook_data.get('reference') or webhook_data.get('order_id', '')
+        transaction_id = webhook_data.get('transaction_id') or webhook_data.get('trx_id') or webhook_data.get('id', '')
+        status_value = webhook_data.get('status', '').lower()
+        amount = webhook_data.get('payment_amount') or webhook_data.get('amount')
+        phone_number = webhook_data.get('customer_phone') or webhook_data.get('phone') or webhook_data.get('buyer_phone', '')
+        
+        # Check if payment is successful
+        is_successful = (
+            status_value in ['success', 'successful', 'completed', 'paid'] or
+            webhook_data.get('success', False) is True
+        )
+        
+        if is_successful and ref_trx:
+            # Try to find user by order_id (ref_trx)
             try:
-                user = User.objects.get(phone_number=formatted_phone)
+                user = User.objects.get(order_id=ref_trx)
+                
+                # Get package type from amount
+                if amount:
+                    try:
+                        amount_int = int(float(amount))
+                        package_type = BiasharaPayService.get_package_type(amount_int)
+                        if package_type:
+                            # Activate or extend subscription
+                            user.activate_subscription(
+                                package_type=package_type,
+                                order_id=ref_trx,
+                                transaction_id=transaction_id if transaction_id else None
+                            )
+                            logger.info(f"Payment processed via webhook for {user.phone_number}: Package {package_type}, Order {ref_trx}")
+                        else:
+                            logger.warning(f"Amount {amount_int} doesn't match any package price")
+                    except (ValueError, TypeError):
+                        logger.error(f"Invalid amount in webhook: {amount}")
+                else:
+                    logger.warning(f"No amount provided in webhook for ref_trx: {ref_trx}")
+                    
             except User.DoesNotExist:
-                logger.warning(f"User {formatted_phone} not found for webhook")
-                return Response('User not found', status=status.HTTP_400_BAD_REQUEST)
-            
-            # Activate or extend subscription
-            user.activate_subscription(
-                package_type=package_type,
-                order_id=order_id if order_id else None,
-                transaction_id=transaction_id if transaction_id else None
-            )
-            
-            logger.info(f"Payment processed for {formatted_phone}: Package {package_type}, Order {order_id}")
-            
+                # If user not found by order_id, try by phone number
+                if phone_number:
+                    formatted_phone = BiasharaPayService.format_phone_number(phone_number)
+                    try:
+                        user = User.objects.get(phone_number=formatted_phone)
+                        # Update order_id and transaction_id
+                        user.order_id = ref_trx
+                        if transaction_id:
+                            user.transaction_id = transaction_id
+                        
+                        # Get package type and activate
+                        if amount:
+                            try:
+                                amount_int = int(float(amount))
+                                package_type = BiasharaPayService.get_package_type(amount_int)
+                                if package_type:
+                                    user.activate_subscription(
+                                        package_type=package_type,
+                                        order_id=ref_trx,
+                                        transaction_id=transaction_id if transaction_id else None
+                                    )
+                                    logger.info(f"Payment processed via webhook for {user.phone_number}: Package {package_type}")
+                            except (ValueError, TypeError):
+                                logger.error(f"Invalid amount in webhook: {amount}")
+                        user.save()
+                    except User.DoesNotExist:
+                        logger.warning(f"User not found for webhook: ref_trx={ref_trx}, phone={phone_number}")
+        else:
+            logger.info(f"Webhook received but payment not successful: status={status_value}, ref_trx={ref_trx}")
+        
         # Always return 200 OK to acknowledge receipt
         return Response('OK', status=status.HTTP_200_OK)
         
     except Exception as e:
         logger.error(f"Webhook error: {str(e)}")
-        # Still return 200 to acknowledge receipt (Zeno will retry if needed)
+        # Still return 200 to acknowledge receipt (Biashara Pay will retry if needed)
         return Response('Error', status=status.HTTP_200_OK)

@@ -1,6 +1,6 @@
-# Crypto API - Subscription Management with Zeno Pay
+# Crypto API - Subscription Management with Biashara Pay
 
-Django REST API for managing user subscriptions with Zeno Pay payment integration.
+Django REST API for managing user subscriptions with Biashara Pay payment integration.
 
 ## Setup
 
@@ -24,7 +24,17 @@ Django REST API for managing user subscriptions with Zeno Pay payment integratio
    python manage.py createsuperuser
    ```
 
-5. **Run development server:**
+5. **Configure environment variables:**
+   Create a `.env` file with your Biashara Pay credentials:
+   ```env
+   BIASHARA_API_URL=https://Biasharapay.com/api/v1
+   BIASHARA_ENVIRONMENT=sandbox  # or 'production' for live
+   BIASHARA_MERCHANT_KEY=test_merchant_key  # Use 'test_' prefix for sandbox
+   BIASHARA_API_KEY=test_api_key  # Use 'test_' prefix for sandbox
+   BASE_URL=http://localhost:8000  # Your base URL for webhooks
+   ```
+
+6. **Run development server:**
    ```bash
    python manage.py runserver
    ```
@@ -55,7 +65,7 @@ curl http://localhost:8000/api/user/status/255712345678/
 ```
 
 ### 2. Initiate Payment
-Initiate a payment with Zeno Pay. Creates user automatically if they don't exist.
+Initiate a payment with Biashara Pay. Creates user automatically if they don't exist.
 
 **Endpoint:** `POST /api/payment/initiate/`
 
@@ -90,20 +100,48 @@ curl -X POST http://localhost:8000/api/payment/initiate/ \
 {
     "status": "success",
     "message": "Payment initiated successfully",
-    "order_id": "ORDER123456",
-    "payment_url": "https://...",
+    "order_id": "TXN_ABC123DEF456",
+    "transaction_id": "TXNQ5V8K2L9N3XM1",
+    "payment_url": "https://Biasharapay.com/payment/...",
     "phone_number": "255712345678",
     "amount": 150000,
     "package_type": 1
 }
 ```
 
-### 3. Zeno Pay Webhook
-Webhook endpoint for Zeno Pay payment callbacks. This endpoint is called by Zeno Pay when payment status changes.
+### 3. Verify Payment
+Verify a payment transaction with Biashara Pay.
 
-**Endpoint:** `POST /api/webhook/zeno/`
+**Endpoint:** `GET /api/payment/verify/{transaction_id}/`
 
-**Note:** Configure this URL in your Zeno Pay dashboard.
+**Example:**
+```bash
+curl http://localhost:8000/api/payment/verify/TXNQ5V8K2L9N3XM1/
+```
+
+**Response:**
+```json
+{
+    "status": "success",
+    "transaction_id": "TXNQ5V8K2L9N3XM1",
+    "is_payment_successful": true,
+    "verification_data": {
+        "success": true,
+        "data": {
+            "transaction_id": "TXNQ5V8K2L9N3XM1",
+            "status": "completed",
+            "payment_amount": 150000
+        }
+    }
+}
+```
+
+### 4. Biashara Pay Webhook
+Webhook endpoint for Biashara Pay payment callbacks (IPN). This endpoint is called by Biashara Pay when payment status changes.
+
+**Endpoint:** `POST /api/webhook/biashara/`
+
+**Note:** Configure this URL (`https://yourdomain.com/api/webhook/biashara/`) in your Biashara Pay dashboard as the IPN URL.
 
 ## Package Types
 
@@ -118,7 +156,8 @@ Webhook endpoint for Zeno Pay payment callbacks. This endpoint is called by Zeno
 - ✅ Subscription status tracking (active/inactive)
 - ✅ Automatic subscription extension if user already has active subscription
 - ✅ Amount validation (only accepts valid package prices)
-- ✅ Zeno Pay integration
+- ✅ Biashara Pay integration
+- ✅ Payment verification endpoint
 - ✅ Webhook handling for payment confirmations
 
 ## Database Model
@@ -131,18 +170,40 @@ The `User` model includes:
 - `subscription_start_date`
 - `subscription_end_date`
 - `package_type` (1, 2, or 3)
-- `order_id` (from Zeno Pay)
-- `transaction_id` (from Zeno Pay)
+- `order_id` (transaction reference from Biashara Pay)
+- `transaction_id` (transaction ID from Biashara Pay)
 - `created_at`, `updated_at`
 
 ## Configuration
 
-Zeno Pay credentials are configured in `cryptoapi/settings.py`. For production, use environment variables via `.env` file.
+Biashara Pay credentials are configured in `cryptoapi/settings.py` and can be overridden via environment variables in `.env` file.
+
+### Environment Variables
+
+- `BIASHARA_API_URL` - API base URL (default: `https://Biasharapay.com/api/v1`)
+- `BIASHARA_ENVIRONMENT` - Environment mode: `sandbox` or `production`
+- `BIASHARA_MERCHANT_KEY` - Your merchant key (use `test_` prefix for sandbox)
+- `BIASHARA_API_KEY` - Your API key (use `test_` prefix for sandbox)
+- `BASE_URL` - Your base URL for webhook callbacks
+
+## Biashara Pay Integration
+
+This API integrates with [Biashara Pay](https://biasharapay.com/api-docs) payment gateway:
+
+- **Payment Initiation**: Creates payment requests and returns payment URLs
+- **Payment Verification**: Verifies payment status using transaction IDs
+- **Webhook Handling**: Receives IPN callbacks for payment status updates
+
+### Sandbox vs Production
+
+- **Sandbox**: Use for testing. Credentials must have `test_` prefix
+- **Production**: Use for live payments. Credentials have no prefix
 
 ## Testing
 
 1. Check user status (should return exists: false for new number)
 2. Initiate payment with valid amount
-3. Complete payment via Zeno Pay
-4. Webhook will automatically activate user subscription
-5. Check user status again (should show is_active: true)
+3. Complete payment via Biashara Pay payment URL
+4. Verify payment using transaction ID
+5. Webhook will automatically activate user subscription
+6. Check user status again (should show is_active: true)
