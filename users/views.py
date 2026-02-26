@@ -60,9 +60,7 @@ def initiate_payment(request):
     POST /api/payment/initiate/
     Body: {
         "phone_number": "255712345678",
-        "amount": 150000,
-        "name": "John Doe",
-        "email": "john@example.com" (optional)
+        "amount": 150000
     }
     """
     try:
@@ -76,9 +74,14 @@ def initiate_payment(request):
         
         phone_number = serializer.validated_data['phone_number']
         amount = serializer.validated_data['amount']
-        name = serializer.validated_data['name']
-        email = serializer.validated_data.get('email')
-        
+
+        # Format phone number early
+        formatted_phone = BiasharaPayService.format_phone_number(phone_number)
+
+        # Default name and email if not provided
+        name = serializer.validated_data.get('name') or formatted_phone
+        email = serializer.validated_data.get('email') or f"{formatted_phone}@forexbot.com"
+
         # Validate amount matches a package price
         package_type = BiasharaPayService.get_package_type(amount)
         if not package_type:
@@ -89,15 +92,12 @@ def initiate_payment(request):
                 'valid_amounts': list(settings.PACKAGE_PRICES.values())
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Format phone number
-        formatted_phone = BiasharaPayService.format_phone_number(phone_number)
-        
         # Get or create user
         user, created = User.objects.get_or_create(
             phone_number=formatted_phone,
             defaults={
                 'name': name,
-                'email': email or f"{formatted_phone}@forexbot.com"
+                'email': email
             }
         )
         

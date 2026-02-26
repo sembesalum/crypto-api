@@ -17,8 +17,9 @@ class PaymentInitiateSerializer(serializers.Serializer):
     """Serializer for payment initiation request"""
     phone_number = serializers.CharField(required=True)
     amount = serializers.IntegerField(required=True)
-    name = serializers.CharField(required=True)
-    email = serializers.EmailField(required=False, allow_blank=True)
+    # Optional fields; request body can contain only phone_number and amount
+    name = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
 
 
 class PaymentResponseSerializer(serializers.Serializer):
