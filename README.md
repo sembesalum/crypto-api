@@ -41,55 +41,73 @@ Django REST API for managing user subscriptions with Biashara Pay payment integr
 
 ## API Endpoints
 
-### 1. Check User Status
-Check if a user exists and their subscription status.
+All public subscription endpoints use **POST** with `Content-Type: application/json`.
 
-**Endpoint:** `GET /api/user/status/{phone_number}/`
+### 1. Check / Register User (status)
+
+Check subscription state and **create the user** if the phone number is new (jina la msingi kwenye DB ni namba yenyewe). Responses include a Kiswahili `message` for clients (for example WhatsApp bots).
+
+**Endpoint:** `POST /api/user/status/`
+
+**Request body:**
+```json
+{
+    "phone_number": "255616107670"
+}
+```
 
 **Example:**
 ```bash
-curl http://localhost:8000/api/user/status/255712345678/
+curl -X POST http://localhost:8000/api/user/status/ \
+  -H "Content-Type: application/json" \
+  -d '{"phone_number": "255616107670"}'
 ```
 
-**Response:**
+**Response (example):**
 ```json
 {
     "exists": true,
     "is_active": false,
-    "phone_number": "255712345678",
-    "name": "John Doe",
+    "phone_number": "255616107670",
+    "name": "255616107670",
     "subscription_start_date": null,
     "subscription_end_date": null,
-    "package_type": null
+    "package_type": null,
+    "message": "Karibu tena, account yako haiko active. Tafadhali lipia kuendelea kupata huduma zetu."
 }
 ```
 
 ### 2. Initiate Payment
-Initiate a payment with Biashara Pay. Creates user automatically if they don't exist.
+
+Initiate a payment with Biashara Pay. Creates the user automatically if they do not exist. You must send **`package_id`** and **`amount`** together; the amount must match the configured price for that package.
 
 **Endpoint:** `POST /api/payment/initiate/`
 
-**Request Body:**
+**Request body:**
 ```json
 {
-    "phone_number": "255712345678",
+    "phone_number": "255616107670",
+    "package_id": 1,
     "amount": 150000,
     "name": "John Doe",
-    "email": "john@example.com"  // optional
+    "email": "john@example.com"
 }
 ```
 
-**Valid Amounts:**
-- `150000` - 1 month package
-- `250000` - 2 months package
-- `500000` - 3 months package
+`name` and `email` are optional; if omitted, defaults are derived from the phone number.
+
+**Valid packages (`package_id` → amount):**
+- `1` → `150000` (1 month)
+- `2` → `250000` (2 months)
+- `3` → `500000` (3 months)
 
 **Example:**
 ```bash
 curl -X POST http://localhost:8000/api/payment/initiate/ \
   -H "Content-Type: application/json" \
   -d '{
-    "phone_number": "255712345678",
+    "phone_number": "255616107670",
+    "package_id": 1,
     "amount": 150000,
     "name": "John Doe"
   }'
@@ -99,7 +117,7 @@ curl -X POST http://localhost:8000/api/payment/initiate/ \
 ```json
 {
     "status": "success",
-    "message": "Payment initiated successfully",
+    "message": "Gusa link hapa chini kufanya malipo yako ya Tsh 150,000 https://Biasharapay.com/payment/...",
     "order_id": "TXN_ABC123DEF456",
     "transaction_id": "TXNQ5V8K2L9N3XM1",
     "payment_url": "https://Biasharapay.com/payment/...",
@@ -110,13 +128,23 @@ curl -X POST http://localhost:8000/api/payment/initiate/ \
 ```
 
 ### 3. Verify Payment
-Verify a payment transaction with Biashara Pay.
 
-**Endpoint:** `GET /api/payment/verify/{transaction_id}/`
+Verify a payment transaction with Biashara Pay. On success, the user subscription may be activated when the response can be matched to an existing order.
+
+**Endpoint:** `POST /api/payment/verify/`
+
+**Request body:**
+```json
+{
+    "transaction_id": "TXNQ5V8K2L9N3XM1"
+}
+```
 
 **Example:**
 ```bash
-curl http://localhost:8000/api/payment/verify/TXNQ5V8K2L9N3XM1/
+curl -X POST http://localhost:8000/api/payment/verify/ \
+  -H "Content-Type: application/json" \
+  -d '{"transaction_id": "TXNQ5V8K2L9N3XM1"}'
 ```
 
 **Response:**
@@ -136,7 +164,38 @@ curl http://localhost:8000/api/payment/verify/TXNQ5V8K2L9N3XM1/
 }
 ```
 
-### 4. Biashara Pay Webhook
+### 4. Payment Status (last 6 hours)
+
+Check whether a **completed** payment was recorded for this phone number within the **last 6 hours** (uses `last_successful_payment_at` set when subscription is activated via verify or webhook).
+
+**Endpoint:** `POST /api/payment/status/`
+
+**Request body:**
+```json
+{
+    "phone_number": "255616107670"
+}
+```
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/api/payment/status/ \
+  -H "Content-Type: application/json" \
+  -d '{"phone_number": "255616107670"}'
+```
+
+**Response:**
+```json
+{
+    "exists": true,
+    "paid_within_6_hours": true,
+    "message": "Hongera malipo yamekamilika sasa unaweza kupata signal zetu kila siku.",
+    "phone_number": "255712345678"
+}
+```
+
+### 5. Biashara Pay Webhook
+
 Webhook endpoint for Biashara Pay payment callbacks (IPN). This endpoint is called by Biashara Pay when payment status changes.
 
 **Endpoint:** `POST /api/webhook/biashara/`
@@ -145,19 +204,22 @@ Webhook endpoint for Biashara Pay payment callbacks (IPN). This endpoint is call
 
 ## Package Types
 
-- **1 month** - Tsh 150,000
-- **2 months** - Tsh 250,000
-- **3 months** - Tsh 500,000
+- **package_id 1** — Tsh 150,000 (1 month)
+- **package_id 2** — Tsh 250,000 (2 months)
+- **package_id 3** — Tsh 500,000 (3 months)
 
 ## Features
 
+- ✅ Check / register user by phone only (`POST /api/user/status/`)
 - ✅ Automatic user creation on payment initiation
-- ✅ Phone number-based authentication
+- ✅ Phone number-based identification
 - ✅ Subscription status tracking (active/inactive)
-- ✅ Automatic subscription extension if user already has active subscription
-- ✅ Amount validation (only accepts valid package prices)
+- ✅ Automatic subscription extension if user already has an active subscription
+- ✅ `package_id` and matching amount validation
+- ✅ Kiswahili `message` fields on key user and payment flows
 - ✅ Biashara Pay integration
-- ✅ Payment verification endpoint
+- ✅ Payment verification (`POST /api/payment/verify/`)
+- ✅ Recent payment check (`POST /api/payment/status/`)
 - ✅ Webhook handling for payment confirmations
 
 ## Database Model
@@ -172,6 +234,7 @@ The `User` model includes:
 - `package_type` (1, 2, or 3)
 - `order_id` (transaction reference from Biashara Pay)
 - `transaction_id` (transaction ID from Biashara Pay)
+- `last_successful_payment_at` (set when a payment completes and subscription is activated)
 - `created_at`, `updated_at`
 
 ## Configuration
@@ -201,9 +264,12 @@ This API integrates with [Biashara Pay](https://biasharapay.com/api-docs) paymen
 
 ## Testing
 
-1. Check user status (should return exists: false for new number)
-2. Initiate payment with valid amount
-3. Complete payment via Biashara Pay payment URL
-4. Verify payment using transaction ID
-5. Webhook will automatically activate user subscription
-6. Check user status again (should show is_active: true)
+1. `POST /api/user/status/` with `phone_number` only (new numbers get an account created; `name` defaults to the phone).
+2. `POST /api/payment/initiate/` with `phone_number`, `package_id`, matching `amount`, and optional `name`.
+3. Complete payment via the Biashara Pay `payment_url`.
+4. Optionally `POST /api/payment/verify/` with `transaction_id`.
+5. The webhook activates the subscription when Biashara Pay calls your IPN URL.
+6. `POST /api/payment/status/` with `phone_number` to confirm a completed payment in the last 6 hours.
+7. `POST /api/user/status/` again with the same `phone_number`; expect `is_active: true` after a successful payment flow.
+
+For Postman examples and a ready-to-import collection, see [POSTMAN_TESTING.md](POSTMAN_TESTING.md).

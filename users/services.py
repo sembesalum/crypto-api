@@ -51,6 +51,11 @@ class BiasharaPayService:
             if amount == price:
                 return package_type
         return None
+
+    @staticmethod
+    def get_package_price(package_id: int) -> Optional[int]:
+        """Return TZS price for package_id (1, 2, or 3) or None."""
+        return settings.PACKAGE_PRICES.get(package_id)
     
     @staticmethod
     def generate_transaction_reference() -> str:

@@ -17,6 +17,11 @@ class User(models.Model):
     package_type = models.IntegerField(null=True, blank=True, help_text="1=1 month, 2=2 months, 3=3 months")
     order_id = models.CharField(max_length=255, blank=True, null=True)
     transaction_id = models.CharField(max_length=255, blank=True, null=True)
+    last_successful_payment_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When a payment was last completed (webhook/verify).',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -57,6 +62,8 @@ class User(models.Model):
             self.order_id = order_id
         if transaction_id:
             self.transaction_id = transaction_id
+
+        self.last_successful_payment_at = now
         
         self.save()
 

@@ -5,37 +5,56 @@
 http://localhost:8000
 ```
 
+**Note:** Endpoints za API hizi zote hutumia **POST** na `Content-Type: application/json`. **Namba ya simu (username) iko kwenye JSON body, si kwenye URL** (isipokuwa webhook inayoweza kutumwa na Biashara Pay).
+
 ---
 
-## 1. Check User Status
+## 1. Check / Register User (status)
 
-**Method:** `GET`
+**Method:** `POST`
 
 **URL:**
 ```
-http://localhost:8000/api/user/status/255712345678/
+http://localhost:8000/api/user/status/
 ```
 
 **Headers:**
 ```
-None required
+Content-Type: application/json
 ```
 
-**Body:**
-```
-None (GET request)
+**Body (JSON):**
+```json
+{
+    "phone_number": "255616107670"
+}
 ```
 
-**Example Response:**
+**Example Response (user exists):**
 ```json
 {
     "exists": true,
     "is_active": false,
-    "phone_number": "255712345678",
-    "name": "John Doe",
+    "phone_number": "255616107670",
+    "name": "255616107670",
     "subscription_start_date": null,
     "subscription_end_date": null,
-    "package_type": null
+    "package_type": null,
+    "message": "Karibu tena, account yako haiko active. Tafadhali lipia kuendelea kupata huduma zetu."
+}
+```
+
+**Example Response (new user — account created):**
+```json
+{
+    "exists": true,
+    "is_active": false,
+    "phone_number": "255616107670",
+    "name": "255616107670",
+    "subscription_start_date": null,
+    "subscription_end_date": null,
+    "package_type": null,
+    "message": "Karibu sana, account yako imetengenezwa endelea kufurahia huduma zetu."
 }
 ```
 
@@ -55,10 +74,12 @@ http://localhost:8000/api/payment/initiate/
 Content-Type: application/json
 ```
 
-**Body (JSON):**
+**Body (JSON):** Lazima `package_id` na `amount` ziendane (angalia jedwali hapa chini).
+
 ```json
 {
-    "phone_number": "255712345678",
+    "phone_number": "255616107670",
+    "package_id": 1,
     "amount": 150000,
     "name": "John Doe",
     "email": "john@example.com"
@@ -67,29 +88,32 @@ Content-Type: application/json
 
 **Body Examples for Different Packages:**
 
-**1 Month Package (150,000 TZS):**
+**1 Month Package (`package_id`: 1, 150,000 TZS):**
 ```json
 {
-    "phone_number": "255712345678",
+    "phone_number": "255616107670",
+    "package_id": 1,
     "amount": 150000,
     "name": "John Doe"
 }
 ```
 
-**2 Months Package (250,000 TZS):**
+**2 Months Package (`package_id`: 2, 250,000 TZS):**
 ```json
 {
-    "phone_number": "255712345678",
+    "phone_number": "255616107670",
+    "package_id": 2,
     "amount": 250000,
     "name": "John Doe",
     "email": "john@example.com"
 }
 ```
 
-**3 Months Package (500,000 TZS):**
+**3 Months Package (`package_id`: 3, 500,000 TZS):**
 ```json
 {
-    "phone_number": "255712345678",
+    "phone_number": "255616107670",
+    "package_id": 3,
     "amount": 500000,
     "name": "John Doe"
 }
@@ -99,7 +123,7 @@ Content-Type: application/json
 ```json
 {
     "status": "success",
-    "message": "Payment initiated successfully",
+    "message": "Gusa link hapa chini kufanya malipo yako ya Tsh 150,000 https://Biasharapay.com/payment/...",
     "order_id": "TXN_ABC123DEF456",
     "transaction_id": "TXNQ5V8K2L9N3XM1",
     "payment_url": "https://Biasharapay.com/payment/...",
@@ -113,23 +137,25 @@ Content-Type: application/json
 
 ## 3. Verify Payment
 
-**Method:** `GET`
+**Method:** `POST`
 
 **URL:**
 ```
-http://localhost:8000/api/payment/verify/TXNQ5V8K2L9N3XM1/
+http://localhost:8000/api/payment/verify/
 ```
 
-**Note:** Replace `TXNQ5V8K2L9N3XM1` with the actual transaction_id from the payment initiation response.
+**Note:** Badilisha `transaction_id` na thamani halisi kutoka majibu ya initiate payment.
 
 **Headers:**
 ```
-None required
+Content-Type: application/json
 ```
 
-**Body:**
-```
-None (GET request)
+**Body (JSON):**
+```json
+{
+    "transaction_id": "TXNQ5V8K2L9N3XM1"
+}
 ```
 
 **Example Response:**
@@ -151,7 +177,50 @@ None (GET request)
 
 ---
 
-## 4. Webhook (Biashara Pay Callback)
+## 4. Payment Status (within 6 hours)
+
+**Method:** `POST`
+
+**URL:**
+```
+http://localhost:8000/api/payment/status/
+```
+
+**Headers:**
+```
+Content-Type: application/json
+```
+
+**Body (JSON):**
+```json
+{
+    "phone_number": "255616107670"
+}
+```
+
+**Example Response (paid within last 6 hours):**
+```json
+{
+    "exists": true,
+    "paid_within_6_hours": true,
+    "message": "Hongera malipo yamekamilika sasa unaweza kupata signal zetu kila siku.",
+    "phone_number": "255712345678"
+}
+```
+
+**Example Response (no recent payment):**
+```json
+{
+    "exists": true,
+    "paid_within_6_hours": false,
+    "message": "Pole, hakuna malipo yaliyofanyika kwenye account yako.",
+    "phone_number": "255712345678"
+}
+```
+
+---
+
+## 5. Webhook (Biashara Pay Callback)
 
 **Method:** `POST`
 
@@ -182,34 +251,63 @@ Content-Type: application/json
 
 ## Complete Testing Flow
 
-### Step 1: Check User Status (New User)
+### Step 1: Check / Register User
 ```
-GET http://localhost:8000/api/user/status/255712345678/
+POST http://localhost:8000/api/user/status/
+Content-Type: application/json
+
+{
+    "phone_number": "255616107670"
+}
 ```
-Expected: `"exists": false`
+Expected: `message` in Kiswahili; new users get an account created automatically.
 
 ### Step 2: Initiate Payment
 ```
 POST http://localhost:8000/api/payment/initiate/
-Body: {
-    "phone_number": "255712345678",
+Content-Type: application/json
+
+{
+    "phone_number": "255616107670",
+    "package_id": 1,
     "amount": 150000,
     "name": "John Doe"
 }
 ```
-Expected: Returns `order_id` and `payment_url`
+Expected: Returns `order_id`, `payment_url`, na `message` ya Kiswahili.
 
 ### Step 3: Verify Payment (Optional)
 ```
-GET http://localhost:8000/api/payment/verify/{transaction_id}/
-```
-Replace `{transaction_id}` with the transaction_id from Step 2 response.
+POST http://localhost:8000/api/payment/verify/
+Content-Type: application/json
 
-### Step 4: Check User Status Again
+{
+    "transaction_id": "TXNQ5V8K2L9N3XM1"
+}
 ```
-GET http://localhost:8000/api/user/status/255712345678/
+Replace `transaction_id` with the value from Step 2 response.
+
+### Step 4: Payment Status (Optional)
 ```
-Expected: `"exists": true`, `"is_active": true` (after payment is completed)
+POST http://localhost:8000/api/payment/status/
+Content-Type: application/json
+
+{
+    "phone_number": "255616107670"
+}
+```
+Expected: `paid_within_6_hours: true` baada ya malipo yaliyothibitishwa (webhook au verify).
+
+### Step 5: Check User Again
+```
+POST http://localhost:8000/api/user/status/
+Content-Type: application/json
+
+{
+    "phone_number": "255616107670"
+}
+```
+Expected: `"is_active": true` (baada ya malipo yamekamilika).
 
 ---
 
@@ -225,16 +323,25 @@ You can import this into Postman:
     },
     "item": [
         {
-            "name": "Check User Status",
+            "name": "Check / Register User",
             "request": {
-                "method": "GET",
-                "header": [],
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"phone_number\": \"255616107670\"\n}"
+                },
                 "url": {
-                    "raw": "http://localhost:8000/api/user/status/255712345678/",
+                    "raw": "http://localhost:8000/api/user/status/",
                     "protocol": "http",
                     "host": ["localhost"],
                     "port": "8000",
-                    "path": ["api", "user", "status", "255712345678", ""]
+                    "path": ["api", "user", "status", ""]
                 }
             }
         },
@@ -250,7 +357,7 @@ You can import this into Postman:
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n    \"phone_number\": \"255712345678\",\n    \"amount\": 150000,\n    \"name\": \"John Doe\"\n}"
+                    "raw": "{\n    \"phone_number\": \"255616107670\",\n    \"package_id\": 1,\n    \"amount\": 150000,\n    \"name\": \"John Doe\"\n}"
                 },
                 "url": {
                     "raw": "http://localhost:8000/api/payment/initiate/",
@@ -273,7 +380,7 @@ You can import this into Postman:
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n    \"phone_number\": \"255712345678\",\n    \"amount\": 250000,\n    \"name\": \"John Doe\"\n}"
+                    "raw": "{\n    \"phone_number\": \"255616107670\",\n    \"package_id\": 2,\n    \"amount\": 250000,\n    \"name\": \"John Doe\"\n}"
                 },
                 "url": {
                     "raw": "http://localhost:8000/api/payment/initiate/",
@@ -296,7 +403,7 @@ You can import this into Postman:
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n    \"phone_number\": \"255712345678\",\n    \"amount\": 500000,\n    \"name\": \"John Doe\"\n}"
+                    "raw": "{\n    \"phone_number\": \"255616107670\",\n    \"package_id\": 3,\n    \"amount\": 500000,\n    \"name\": \"John Doe\"\n}"
                 },
                 "url": {
                     "raw": "http://localhost:8000/api/payment/initiate/",
@@ -310,14 +417,46 @@ You can import this into Postman:
         {
             "name": "Verify Payment",
             "request": {
-                "method": "GET",
-                "header": [],
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"transaction_id\": \"TXNQ5V8K2L9N3XM1\"\n}"
+                },
                 "url": {
-                    "raw": "http://localhost:8000/api/payment/verify/TXNQ5V8K2L9N3XM1/",
+                    "raw": "http://localhost:8000/api/payment/verify/",
                     "protocol": "http",
                     "host": ["localhost"],
                     "port": "8000",
-                    "path": ["api", "payment", "verify", "TXNQ5V8K2L9N3XM1", ""]
+                    "path": ["api", "payment", "verify", ""]
+                }
+            }
+        },
+        {
+            "name": "Payment Status (6h)",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"phone_number\": \"255616107670\"\n}"
+                },
+                "url": {
+                    "raw": "http://localhost:8000/api/payment/status/",
+                    "protocol": "http",
+                    "host": ["localhost"],
+                    "port": "8000",
+                    "path": ["api", "payment", "status", ""]
                 }
             }
         },
@@ -352,9 +491,14 @@ You can import this into Postman:
 
 ## Quick Copy-Paste for Postman
 
-### 1. Check User Status
+### 1. Check / Register User
 ```
-GET http://localhost:8000/api/user/status/255712345678/
+POST http://localhost:8000/api/user/status/
+Content-Type: application/json
+
+{
+    "phone_number": "255616107670"
+}
 ```
 
 ### 2. Initiate Payment (1 Month)
@@ -363,7 +507,8 @@ POST http://localhost:8000/api/payment/initiate/
 Content-Type: application/json
 
 {
-    "phone_number": "255712345678",
+    "phone_number": "255616107670",
+    "package_id": 1,
     "amount": 150000,
     "name": "John Doe"
 }
@@ -375,7 +520,8 @@ POST http://localhost:8000/api/payment/initiate/
 Content-Type: application/json
 
 {
-    "phone_number": "255712345678",
+    "phone_number": "255616107670",
+    "package_id": 2,
     "amount": 250000,
     "name": "John Doe"
 }
@@ -387,7 +533,8 @@ POST http://localhost:8000/api/payment/initiate/
 Content-Type: application/json
 
 {
-    "phone_number": "255712345678",
+    "phone_number": "255616107670",
+    "package_id": 3,
     "amount": 500000,
     "name": "John Doe"
 }
@@ -395,11 +542,26 @@ Content-Type: application/json
 
 ### 5. Verify Payment
 ```
-GET http://localhost:8000/api/payment/verify/TXNQ5V8K2L9N3XM1/
+POST http://localhost:8000/api/payment/verify/
+Content-Type: application/json
+
+{
+    "transaction_id": "TXNQ5V8K2L9N3XM1"
+}
 ```
 *(Replace TXNQ5V8K2L9N3XM1 with actual transaction_id)*
 
-### 6. Webhook Test
+### 6. Payment Status (6 hours)
+```
+POST http://localhost:8000/api/payment/status/
+Content-Type: application/json
+
+{
+    "phone_number": "255616107670"
+}
+```
+
+### 7. Webhook Test
 ```
 POST http://localhost:8000/api/webhook/biashara/
 Content-Type: application/json
